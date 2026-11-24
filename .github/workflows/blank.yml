@@ -28,4 +28,4 @@ jobs:
         uses: gradle/actions/setup-gradle@v6
 
       - name: Build release APK
-        run: ./gradlew :app:assembleRelease
+        run: chmod +x gradlew & ./gradlew :app:assembleRelease

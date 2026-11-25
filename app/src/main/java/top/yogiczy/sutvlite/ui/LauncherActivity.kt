@@ -17,6 +17,7 @@ class LauncherActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         Logx.mark("LauncherActivity.onCreate (HOME 被按下)")
         // singleTask + CLEAR_TOP: 复用已在运行的直播实例, 不会产生第二个播放器
         val i = Intent(this, LiveActivity::class.java).apply {

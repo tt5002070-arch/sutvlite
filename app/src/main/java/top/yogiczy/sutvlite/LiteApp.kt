@@ -97,7 +97,7 @@ class LiteApp : Application() {
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context?, intent: Intent?) {
         if (intent?.action != Intent.ACTION_BOOT_COMPLETED) return
-        if (!SP.getBoolean("boot_launch", false)) return
+        if (!SP.getBoolean("boot_launch", true)) return
         runCatching {
             val i = Intent(context, top.yogiczy.sutvlite.ui.LiveActivity::class.java)
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)

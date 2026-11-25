@@ -34,7 +34,9 @@ import top.yogiczy.sutvlite.migu.MiguBackendManager
 import top.yogiczy.sutvlite.migu.MiguCategory
 import top.yogiczy.sutvlite.migu.MiguChannel
 import top.yogiczy.sutvlite.player.LegacyPlayerView
-
+import android.os.Handler
+import android.os.Looper
+import android.widget.Toast
 /**
  * 天光云影 Lite — 唯一主界面 = 直播
  *
@@ -127,11 +129,16 @@ open class LiveActivity : Activity() {
     private var okLongHandled = false
     private var menuPressTimes = mutableListOf<Long>()
 
+    private val channelInput = StringBuilder()
+    private val inputHandler = Handler(Looper.getMainLooper())
+    private var inputTimeoutRunnable: Runnable? = null
+
     // ==================== 生命周期 ====================
 
     override fun onCreate(savedInstanceState: Bundle?) {
         requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
         super.onCreate(savedInstanceState)
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         instanceCount++
         Logx.mark("LiveActivity.onCreate 实例数=$instanceCount")
         buildUi()
@@ -966,6 +973,38 @@ open class LiveActivity : Activity() {
         } else return
         switchChannel()
     }
+    
+    private fun switchToChannel(globalIndex: Int) {
+        if (globalIndex < 0) {
+            Logx.mark("⚠️ 全局频道索引无效: $globalIndex")
+            return
+        }
+    
+        var count = 0
+        for (i in categories.indices) {
+            val groupSize = categories[i].dataList.size
+            if (globalIndex < count + groupSize) {
+                // 找到了：globalIndex 落在第 i 组
+                currentGroupIdx = i
+                currentChannelList = categories[i].dataList
+                currentChannelIdx = globalIndex - count  // 组内索引
+                switchChannel()
+                Toast.makeText(this, "已切换: ${currentChannelList[currentChannelIdx].name}", Toast.LENGTH_SHORT).show()
+                return
+            }
+            count += groupSize
+        }
+    
+        // 遍历完都没找到 → 超出总数
+        Toast.makeText(this, "频道 ${globalIndex + 1} 不存在", Toast.LENGTH_SHORT).show()
+    }
+
+    private var channelToast: Toast? = null
+    private fun showInputToast(text: String) {
+        channelToast?.cancel()  // 取消上一个，避免排队
+        channelToast = Toast.makeText(this, text, Toast.LENGTH_SHORT)
+        channelToast?.show()
+    }
 
     // ==================== 提示 ====================
 
@@ -1095,12 +1134,18 @@ open class LiveActivity : Activity() {
 
     private fun buildGroupRows() {
         val col = groupCol ?: return
+        var count = 0
         col.removeAllViews()
         groupRows.clear()
         categories.forEachIndexed { idx, cat ->
+            
+            val groupStart = count + 1
+            val groupEnd = count + cat.dataList.size
+            count += cat.dataList.size
+
             val tv = TextView(this).apply {
                 id = View.generateViewId()
-                text = cat.name
+                text =  "${cat.name}($groupStart-$groupEnd)"
                 textSize = 20f
                 gravity = Gravity.CENTER_VERTICAL
                 maxLines = 1
@@ -1153,7 +1198,15 @@ open class LiveActivity : Activity() {
         col.removeAllViews()
         channelRows.clear()
         val list = categories.getOrNull(panelGroupIdx)?.dataList ?: emptyList()
+        
+        // ★ 计算当前分组之前的所有频道总数
+        var baseCount = 0
+        for (i in 0 until panelGroupIdx) {
+            baseCount += categories[i].dataList.size
+        }
+
         list.forEachIndexed { idx, ch ->
+            val globalIndex = baseCount + idx + 1  // ★ 全局频道编号（从1开始）
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
@@ -1175,7 +1228,8 @@ open class LiveActivity : Activity() {
                 }
             }
             row.addView(TextView(this).apply {
-                text = ch.name.ifBlank { ch.pid }
+                 text = "${ch.name.ifBlank { ch.pid }} ($globalIndex)"
+                // 或者: text = "$globalIndex. ${ch.name.ifBlank { ch.pid }}"
                 textSize = 24f
                 maxLines = 1
                 ellipsize = android.text.TextUtils.TruncateAt.END
@@ -1236,18 +1290,60 @@ open class LiveActivity : Activity() {
         return super.dispatchKeyEvent(event)
     }
 
+    private fun commitChannelSwitch() {
+        val number = channelInput.toString().toIntOrNull() ?: return
+        channelInput.clear()
+
+        // 用户输入的是"第几台"（从1开始），转成索引（从0开始）
+        val index = number - 1
+        switchToChannel(index)
+    }
+
+    private fun handleChannelDigit(digit: Int) {
+        // 取消之前的超时
+        inputTimeoutRunnable?.let { inputHandler.removeCallbacks(it) }
+
+        channelInput.append(digit)
+
+        // 超过2位就截断（只取最后两位）
+        if (channelInput.length > 3) {
+            channelInput.delete(0, channelInput.length - 3)
+        }
+
+        showInputToast(channelInput.toString())
+
+        // 如果已经输入了2位，立即切换
+        if (channelInput.length == 3) {
+            commitChannelSwitch()
+        } else {
+            // 1位时等1.5秒再切换
+            inputTimeoutRunnable = Runnable { commitChannelSwitch() }
+            inputHandler.postDelayed(inputTimeoutRunnable!!, 1500)
+        }
+    }
+
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         // 连续 5 次菜单键 → 设置
         if (keyCode == KeyEvent.KEYCODE_MENU && event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
-            val now = System.currentTimeMillis()
-            menuPressTimes.add(now)
-            menuPressTimes.removeAll { now - it > 4000 }
-            if (menuPressTimes.size >= 5) {
-                menuPressTimes.clear()
+            // val now = System.currentTimeMillis()
+            // menuPressTimes.add(now)
+            // menuPressTimes.removeAll { now - it > 4000 }
+            // if (menuPressTimes.size >= 5) {
+            //     menuPressTimes.clear()
                 openSettings()
+                return true
+            // }
+        }
+
+        // 新加的数字换台
+        if (keyCode >= KeyEvent.KEYCODE_0 && keyCode <= KeyEvent.KEYCODE_9) {
+            if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+                val digit = keyCode - KeyEvent.KEYCODE_0
+                handleChannelDigit(digit)
                 return true
             }
         }
+
         if (overlayVisible) return super.onKeyDown(keyCode, event)
 
         // 蓝屏显示时: 任何方向键/OK 都先收起蓝屏并立即换台, 保证遥控一定有效

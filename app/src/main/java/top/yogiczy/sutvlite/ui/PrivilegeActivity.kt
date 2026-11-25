@@ -42,6 +42,7 @@ class PrivilegeActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
         super.onCreate(savedInstanceState)
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         page = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(C_BG)
@@ -171,7 +172,7 @@ class PrivilegeActivity : Activity() {
         // ---- 1) 不需要 root: 立即显示 ----
         cachedLauncher = runCatching { RootActions.isHomeComponentEnabled() }.getOrDefault(false)
         cachedExclusive = runCatching { RootActions.isExclusiveHome() }.getOrDefault(false)
-        cachedBoot = SP.getBoolean("boot_launch", false)
+        cachedBoot = SP.getBoolean("boot_launch", true)
         rebuildValues()
 
         // ---- 2) Root 状态 (读缓存, 不阻塞) ----
